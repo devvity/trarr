@@ -1,7 +1,20 @@
 # train_nemotron_lora.py
+import os
+import torch
 from datasets import load_dataset
-from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    TrainingArguments,
+    Trainer,
+    BitsAndBytesConfig
+)
 from peft import LoraConfig, get_peft_model, TaskType
+
+# -----------------------------
+# 0. CUDA memory fragmentation fix
+# -----------------------------
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 # -----------------------------
 # 1. Load dataset (JSONL format)
@@ -13,32 +26,42 @@ dataset = load_dataset(
 )
 
 # -----------------------------
-# 2. Load tokenizer and model
+# 2. Load tokenizer and model (QLoRA)
 # -----------------------------
 model_name = "mistralai/Mistral-7B-Instruct-v0.1"
+
 tokenizer = AutoTokenizer.from_pretrained(model_name)
-tokenizer.pad_token = tokenizer.eos_token  # ensure padding works
+tokenizer.pad_token = tokenizer.eos_token
+
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_compute_dtype=torch.bfloat16
+)
 
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
     device_map="auto",
-    torch_dtype="auto"
+    quantization_config=bnb_config
 )
+
+# enable gradient checkpointing to save memory
+model.gradient_checkpointing_enable()
 
 # -----------------------------
 # 3. Tokenize dataset
 # -----------------------------
 def tokenize(example):
-    # Your dataset already has "prompt" and "completion"
-    text = example["prompt"] + example["completion"]
+    text = example["prompt"] + " " + example["completion"]
     return tokenizer(
         text,
         truncation=True,
         padding="max_length",
-        max_length=256
+        max_length=128
     )
 
-dataset = dataset.map(tokenize, batched=False)
+dataset = dataset.map(tokenize, batched=True)
 
 # -----------------------------
 # 4. LoRA configuration
@@ -46,7 +69,7 @@ dataset = dataset.map(tokenize, batched=False)
 lora_config = LoraConfig(
     r=8,
     lora_alpha=32,
-    target_modules=["q_proj", "v_proj"],  # safe choice for Mistral
+    target_modules=["q_proj", "v_proj"],  # recommended for Mistral
     lora_dropout=0.05,
     bias="none",
     task_type=TaskType.CAUSAL_LM
@@ -59,14 +82,17 @@ model = get_peft_model(model, lora_config)
 # -----------------------------
 training_args = TrainingArguments(
     output_dir="./lora_mistral",
-    per_device_train_batch_size=2,  # reduce if OOM
-    gradient_accumulation_steps=8,
-    learning_rate=3e-4,
+    per_device_train_batch_size=1,
+    gradient_accumulation_steps=16,
+    learning_rate=2e-4,
     num_train_epochs=3,
     logging_steps=50,
     save_steps=200,
-    fp16=True,
-    save_total_limit=2
+    save_total_limit=2,
+    fp16=False,
+    bf16=True,
+    optim="paged_adamw_32bit",
+    report_to="none"
 )
 
 # -----------------------------
@@ -76,7 +102,7 @@ trainer = Trainer(
     model=model,
     args=training_args,
     train_dataset=dataset,
-    tokenizer=tokenizer  # keep tokenizer for generation later
+    tokenizer=tokenizer
 )
 
 # -----------------------------
