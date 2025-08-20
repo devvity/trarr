@@ -53,16 +53,24 @@ model.gradient_checkpointing_enable()
 # 3. Tokenize dataset
 # -----------------------------
 def tokenize(batch):
+    # Each batch["prompt"] is a list of strings, and batch["completion"] is a list of strings
     texts = [p + " " + c for p, c in zip(batch["prompt"], batch["completion"])]
-    return tokenizer(
+    
+    tokenized = tokenizer(
         texts,
         truncation=True,
         padding="max_length",
-        max_length=128
+        max_length=128,
     )
+    
+    # Add labels = input_ids for causal LM training
+    tokenized["labels"] = tokenized["input_ids"].copy()
+    return tokenized
 
 
-dataset = dataset.map(tokenize, batched=True)
+
+dataset = dataset.map(tokenize, batched=True, remove_columns=["prompt", "completion"])
+
 
 # -----------------------------
 # 4. LoRA configuration
