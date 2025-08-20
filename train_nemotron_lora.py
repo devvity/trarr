@@ -52,14 +52,15 @@ model.gradient_checkpointing_enable()
 # -----------------------------
 # 3. Tokenize dataset
 # -----------------------------
-def tokenize(example):
-    text = example["prompt"] + " " + example["completion"]
+def tokenize(batch):
+    texts = [p + " " + c for p, c in zip(batch["prompt"], batch["completion"])]
     return tokenizer(
-        text,
+        texts,
         truncation=True,
         padding="max_length",
         max_length=128
     )
+
 
 dataset = dataset.map(tokenize, batched=True)
 
