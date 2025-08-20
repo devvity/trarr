@@ -23,17 +23,17 @@ model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
 # -----------------------------
 # 3. Tokenize dataset
 # -----------------------------
-def tokenize(example):
-    # combine prompt + completion into a single training string
-    text = example["prompt"] + " " + example["completion"]
+def tokenize(batch):
+    # batch["prompt"] and batch["completion"] are lists
+    texts = [p + " " + c for p, c in zip(batch["prompt"], batch["completion"])]
     return tokenizer(
-        text,
+        texts,
         truncation=True,
         padding="max_length",
         max_length=128
     )
 
-dataset = dataset.map(tokenize, batched=True)
+dataset = dataset.map(tokenize, batched=True, remove_columns=dataset.column_names)
 
 # -----------------------------
 # 4. LoRA configuration
@@ -41,7 +41,7 @@ dataset = dataset.map(tokenize, batched=True)
 lora_config = LoraConfig(
     r=8,
     lora_alpha=32,
-    target_modules=["c_attn"],  # typical for causal LM
+    target_modules=["q_proj", "v_proj"],  # works better with Mistral
     lora_dropout=0.05,
     bias="none",
     task_type=TaskType.CAUSAL_LM
@@ -53,13 +53,13 @@ model = get_peft_model(model, lora_config)
 # 5. Training arguments
 # -----------------------------
 training_args = TrainingArguments(
-    output_dir="./lora_nemotron",
-    per_device_train_batch_size=4,  # lower for GPU memory safety
-    gradient_accumulation_steps=4,  # simulates larger batch
+    output_dir="./lora_mistral",
+    per_device_train_batch_size=2,  # keep small for GPU memory
+    gradient_accumulation_steps=8,  # simulate larger batch
     learning_rate=3e-4,
     num_train_epochs=3,
     logging_steps=50,
-    save_steps=200,
+    save_steps=500,
     fp16=True,  # use mixed precision
     save_total_limit=2
 )
