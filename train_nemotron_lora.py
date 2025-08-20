@@ -1,7 +1,8 @@
 # train_nemotron_lora.py
 from datasets import load_dataset
-from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
-from peft import LoraConfig, get_peft_model, TaskType
+from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments
+from peft import LoraConfig, get_peft_model
+from trl import SFTTrainer
 
 # -----------------------------
 # 1. Load dataset (JSONL format)
@@ -18,48 +19,31 @@ dataset = load_dataset(
 model_name = "mistralai/Mistral-7B-v0.1"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 tokenizer.pad_token = tokenizer.eos_token  # important for causal LM
-
-# Let HF Transformers handle placement automatically
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
-    device_map="auto",     # avoids manual .to() issues
-    torch_dtype="auto"     # match precision automatically
+    device_map="auto",
+    torch_dtype="auto"
 )
 
 # -----------------------------
-# 3. Tokenize dataset
-# -----------------------------
-def tokenize(batch):
-    # combine prompt + completion into single string
-    texts = [p + " " + c for p, c in zip(batch["prompt"], batch["completion"])]
-    return tokenizer(
-        texts,
-        truncation=True,
-        padding="max_length",
-        max_length=128
-    )
-
-dataset = dataset.map(tokenize, batched=True, remove_columns=dataset.column_names)
-
-# -----------------------------
-# 4. LoRA configuration
+# 3. LoRA configuration
 # -----------------------------
 lora_config = LoraConfig(
     r=8,
     lora_alpha=32,
-    target_modules=["c_attn"],  # common for Mistral-like models
+    target_modules=["q_proj", "v_proj"],  # works well for Mistral
     lora_dropout=0.05,
     bias="none",
-    task_type=TaskType.CAUSAL_LM
+    task_type="CAUSAL_LM"
 )
 
 model = get_peft_model(model, lora_config)
 
 # -----------------------------
-# 5. Training arguments
+# 4. Training arguments
 # -----------------------------
 training_args = TrainingArguments(
-    output_dir="./lora_nemotron",
+    output_dir="./lora_mistral",
     per_device_train_batch_size=4,
     gradient_accumulation_steps=4,
     learning_rate=3e-4,
@@ -68,20 +52,25 @@ training_args = TrainingArguments(
     save_steps=200,
     fp16=True,
     save_total_limit=2,
-    remove_unused_columns=False,  # <-- critical fix
-    report_to="none"  # disable wandb unless you want logging
+    remove_unused_columns=False,  # important for TRL
+    report_to="none"
 )
 
 # -----------------------------
-# 6. Trainer
+# 5. SFT Trainer
 # -----------------------------
-trainer = Trainer(
+trainer = SFTTrainer(
     model=model,
+    train_dataset=dataset,
+    tokenizer=tokenizer,
     args=training_args,
-    train_dataset=dataset
+    peft_config=lora_config,
+    max_seq_length=128,  # truncate longer samples
+    dataset_text_field=None,  # we’ll pass combined text manually
+    formatting_func=lambda ex: ex["prompt"] + " " + ex["completion"]
 )
 
 # -----------------------------
-# 7. Start training
+# 6. Start training
 # -----------------------------
 trainer.train()
