@@ -24,7 +24,7 @@ model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
 # 3. Tokenize dataset
 # -----------------------------
 def tokenize(batch):
-    # batch["prompt"] and batch["completion"] are lists
+    # Combine prompt + completion into a single training string
     texts = [p + " " + c for p, c in zip(batch["prompt"], batch["completion"])]
     return tokenizer(
         texts,
@@ -34,6 +34,7 @@ def tokenize(batch):
     )
 
 dataset = dataset.map(tokenize, batched=True, remove_columns=dataset.column_names)
+
 
 # -----------------------------
 # 4. LoRA configuration
