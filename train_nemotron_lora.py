@@ -6,7 +6,7 @@ from peft import LoraConfig, get_peft_model, TaskType
 # -----------------------------
 # 1. Load dataset
 # -----------------------------
-dataset = load_dataset("json", data_files="/workspace/single_person_dataset.jsonl")
+dataset = load_dataset("json", data_files="/single_person_dataset.jsonl")
 
 # -----------------------------
 # 2. Load tokenizer and model
