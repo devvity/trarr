@@ -31,7 +31,7 @@ model = AutoModelForCausalLM.from_pretrained(
 lora_config = LoraConfig(
     r=8,
     lora_alpha=32,
-    target_modules=["q_proj", "v_proj"],  # works well for Mistral
+    target_modules=["q_proj", "v_proj"],  # good for Mistral
     lora_dropout=0.05,
     bias="none",
     task_type="CAUSAL_LM"
@@ -52,22 +52,23 @@ training_args = TrainingArguments(
     save_steps=200,
     fp16=True,
     save_total_limit=2,
-    remove_unused_columns=False,  # important for TRL
+    remove_unused_columns=False,
     report_to="none"
 )
 
 # -----------------------------
 # 5. SFT Trainer
 # -----------------------------
+def formatting_func(example):
+    return example["prompt"] + " " + example["completion"]
+
 trainer = SFTTrainer(
     model=model,
     train_dataset=dataset,
-    tokenizer=tokenizer,
     args=training_args,
     peft_config=lora_config,
-    max_seq_length=128,  # truncate longer samples
-    dataset_text_field=None,  # we’ll pass combined text manually
-    formatting_func=lambda ex: ex["prompt"] + " " + ex["completion"]
+    max_seq_length=128,
+    formatting_func=formatting_func,
 )
 
 # -----------------------------
