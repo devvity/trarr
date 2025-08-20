@@ -4,9 +4,13 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingA
 from peft import LoraConfig, get_peft_model, TaskType
 
 # -----------------------------
-# 1. Load dataset
+# 1. Load dataset (JSONL format)
 # -----------------------------
-dataset = load_dataset("json", data_files="/single_person_dataset.jsonl")
+dataset = load_dataset(
+    "json",
+    data_files="/workspace/single_person_dataset.jsonl",
+    split="train"
+)
 
 # -----------------------------
 # 2. Load tokenizer and model
@@ -20,8 +24,10 @@ model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
 # 3. Tokenize dataset
 # -----------------------------
 def tokenize(example):
+    # combine prompt + completion into a single training string
+    text = example["prompt"] + " " + example["completion"]
     return tokenizer(
-        example["prompt"],
+        text,
         truncation=True,
         padding="max_length",
         max_length=128
@@ -64,7 +70,7 @@ training_args = TrainingArguments(
 trainer = Trainer(
     model=model,
     args=training_args,
-    train_dataset=dataset["train"]
+    train_dataset=dataset
 )
 
 # -----------------------------
